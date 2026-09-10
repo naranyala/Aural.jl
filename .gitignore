@@ -1,0 +1,49 @@
+# Local dependency resolutions (library compatibility lives in Project.toml).
+/Manifest.toml
+/Manifest-v*.toml
+
+# Julia coverage, allocation profiles, and local package caches.
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+*.jl.*.mem
+*.jl.*.trace
+/coverage/
+/lcov.info
+/.julia/
+
+# Generated documentation, analysis output, and downloaded datasets.
+/docs/build/
+/docs/site/
+/output/
+/outputs/
+/artifacts/
+/data/raw/
+/data/cache/
+/tmp/
+
+# Generated audio. Small, intentional fixtures may live under test/fixtures/.
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.opus
+*.aiff
+*.aif
+!test/fixtures/**
+
+# Local credentials and environment overrides.
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Editor and operating-system files.
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+/.idea/
