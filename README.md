@@ -1,19 +1,80 @@
 # Aural.jl
 
-A small personal Julia toolkit for audio and music processing.
+Aural.jl is a small, offline-first Julia toolkit for connecting symbolic music,
+audio synthesis, sampled audio, WAV files, and baseline music-information-
+retrieval (MIR) features.
 
-The starter focuses on offline audio and baseline music information retrieval:
+The package is intentionally compact. Its current data flow is:
 
-- `AudioBuffer` for multichannel sampled audio
-- Basic gain, mixing, trimming, normalization, and channel operations
-- Pitches, notes, tempos, scores, and note events
-- Sine-tone generation
-- Simple score-to-audio rendering
+```text
+symbolic music -> synthesis/rendering -> AudioBuffer -> analysis and WAV I/O
+```
 
-WAV I/O and spectral analysis use `WAV`, `FFTW`, and `DSP`. MIDI and realtime
-integrations remain planned in [`TODOS.md`](TODOS.md).
+It does not require an audio device and does not currently provide realtime
+streaming, MIDI, codec support beyond WAV, or machine-learning integrations.
 
-## Example
+## What is implemented
+
+- `AudioBuffer` stores sampled audio as `channels × frames`.
+- Audio operations include channel conversion, gain, peak normalization,
+  trimming, and additive mixing.
+- `Pitch`, `Note`, `Tempo`, `NoteEvent`, and `Score` provide a small symbolic
+  music model.
+- `oscillator` provides sine, cosine, saw, square, and triangle waveforms;
+  `tone` is its sine alias.
+- `noise`, linear/exponential ramps, `ADSR`, `envelope`, `apply_envelope`, and
+  `note` support small offline synthesis experiments.
+- `render` turns a constant-tempo score into audio with its current sine voice.
+- `read_audio` and `write_audio` adapt WAV files through WAV.jl.
+- `stft` and `spectrogram` provide one-sided FFT analysis.
+- Baseline RMS, spectral centroid, spectral flux, chroma, and MFCC features are
+  available for offline experiments.
+- `detect_onsets` and `evaluate_events` provide point-event onset baselines.
+
+The package is version `0.1.0` and targets Julia `1.10` or newer. The current
+development and verification environment uses Julia 1.12.7.
+
+## Installation and first run
+
+Clone the repository, enter its directory, and instantiate the project:
+
+```sh
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+Then load the package:
+
+```julia
+using Aural
+```
+
+Runtime dependencies are declared in [`Project.toml`](Project.toml): WAV.jl
+for file I/O, FFTW.jl for FFTs, and DSP.jl for the default Hann window.
+
+## Quick start: generate and write audio
+
+```julia
+using Aural
+
+tone440 = tone(440, 2; samplerate=48_000, amplitude=0.2)
+mixdown = normalize(gain(tone440, 0.5))
+write_audio("tone.wav", mixdown)
+```
+
+`AudioBuffer` uses channels × frames throughout. `duration` is measured in
+seconds, while `samplerate` is measured in samples per second:
+
+```julia
+nchannels(tone440)   # 1
+nframes(tone440)     # 96000
+duration(tone440)    # 2.0
+samples(tone440)     # the underlying 1 × 96000 array
+```
+
+See [`docs/audio.md`](docs/audio.md) for ownership, channel, timing, and
+mixing details.
+
+## Quick start: render a score
 
 ```julia
 using Aural
@@ -24,107 +85,142 @@ score = Score([
     NoteEvent(Note(:G, 4), 2, 2),
 ]; tempo=Tempo(120))
 
-audio = render(score; samplerate=48_000)
-audio = normalize(gain(audio, 0.5))
-
-duration(audio)
+audio = render(score; samplerate=48_000, amplitude=0.2)
+write_audio("melody.wav", audio)
 ```
 
-## MIR workflow
+Beats remain beats inside the score. `render` converts them to seconds at the
+score's constant tempo. Overlapping events are mixed additively, and the output
+ends at the latest event end. See
+[`docs/music-and-synthesis.md`](docs/music-and-synthesis.md).
 
-Start Julia with `julia --project=.` in this folder and run `using Pkg;
-Pkg.instantiate()` once to install dependencies.
+## Quick start: analyze a recording
 
 ```julia
 using Aural
 
-write_audio("tone.wav", tone(440, 1; amplitude=0.2))
 audio = mono(read_audio("tone.wav"))
-spec = spectrogram(audio; window_size=2048, hop_size=512, pad=false)
+spec = spectrogram(audio; window_size=2_048, hop_size=512, pad=false)
+
 centroid = spectral_centroid(spec)
 flux = spectral_flux(spec)
 pitch_classes = chroma(spec)
 cepstra = mfcc(spec; nfilters=40, ncoeffs=13)
-energy = rms(audio; window_size=2048, hop_size=512, pad=false)
+energy = rms(audio; window_size=2_048, hop_size=512, pad=false)
 
-values(cepstra) # coefficients × analysis frames
-times(cepstra)  # seconds
+values(cepstra)  # coefficients × analysis frames
+times(cepstra)   # seconds, shared with the spectrogram
 ```
 
-## Onset detection and evaluation
+Analysis defaults to channel 1. Call `mono` when an explicit downmix is
+preferred. Feature matrices use rows × analysis frames; feature tracks use one
+value per analysis frame. See [`docs/analysis.md`](docs/analysis.md) for frame
+placement, padding, numerical conventions, and feature definitions.
+
+## Quick start: detect and score onsets
 
 ```julia
 using Aural
 
-clicks = zeros(Float32, 8000)
-clicks[[2001, 4001, 6001]] .= 1
-audio = AudioBuffer(clicks, 8000)
-reference = EventAnnotations([0.25, 0.5, 0.75]; kind=:onset)
-estimated = detect_onsets(audio; window_size=128, hop_size=32)
-score = evaluate_events(reference, estimated; tolerance=0.016)
-score.f1 # 1.0 for this synthetic example
+audio = read_audio("recording.wav")
+estimated = detect_onsets(audio; window_size=1_024, hop_size=256)
+reference = EventAnnotations([0.42, 1.07, 1.84]; kind=:onset)
+
+score = evaluate_events(reference, estimated; tolerance=0.05)
+(score.precision, score.recall, score.f1)
 ```
 
-`detect_onsets` uses positive spectral flux and a threshold relative to its
-global maximum. It selects local peaks, retaining the strongest within
-`min_interval` seconds. A plateau uses its first bin; equal nearby peaks use
-the earliest timestamp. Default threshold is 0.2 and minimum spacing is 50 ms.
-It returns frame-center times without backtracking, may miss first-frame
-attacks, and defaults to complete windows. This is an offline baseline.
+The detector is an offline spectral-flux baseline. It uses frame-center times,
+does not backtrack peaks, and may miss an attack in the first frame. Event
+matching is inclusive, one-to-one, and maximizes the number of matches; it is
+not a beat-continuity or note-transcription metric. See
+[`docs/events-and-evaluation.md`](docs/events-and-evaluation.md).
 
-`EventAnnotations` supports onset and beat point events in seconds.
-`evaluate_events` returns TP/FP/FN counts, precision, recall, and F1 using
-one-to-one matches within an inclusive tolerance (default 50 ms). Duplicates
-cannot reuse a match; metrics with empty denominators are zero. Matching
-maximizes the number of matches, not minimum timing error. Beat continuity,
-note/chord intervals, dataset loaders, and real-music benchmarks remain planned.
+## Public API at a glance
 
-### Analysis conventions
+### Audio
 
-- Audio uses channels × samples; features use bins/features × analysis frames.
-- Analysis selects channel 1 by default. Call `mono` for explicit downmixing.
-- `FrameGrid` starts at sample 1. `pad=true` includes every hop starting inside
-  the signal and zero-pads the tail; `pad=false` keeps complete windows only.
-  Empty audio yields no frames. Timestamps mark each window's sample midpoint;
-  padded windows can have timestamps beyond the recording duration.
-- STFT uses a symmetric Hann window by default, with optional right-zero-padding
-  to `nfft`. Coefficients are unnormalized one-sided real FFTs. Spectrogram
-  values are squared magnitudes, **not** calibrated power spectral density.
-- RMS uses unwindowed samples, including tail zeros. Centroid is power-weighted
-  in hertz (zero for silence). Flux is the L2 norm of positive magnitude
-  increases, with zero at the first frame.
-- Chroma sums power into nearest 12-TET pitch classes C through B and applies
-  per-frame L1 normalization. This is a simple FFT-bin baseline.
-- MFCC uses HTK mel spacing, unit-peak triangular filters, natural log energies
-  floored at `1e-10`, and orthonormal DCT-II including C0. No pre-emphasis,
-  liftering, deltas, or cepstral mean normalization is applied.
-- WAV reading defaults to Float32; writing converts samples to Float32 and uses
-  WAV.jl's encoding defaults. Arbitrary source bit-depth/metadata preservation
-  is not implemented.
+`AudioBuffer`, `samples`, `samplerate`, `nchannels`, `nframes`, `duration`,
+`channel`, `mono`, `stereo`, `join_channels`, `silence`, `gain`, `normalize`,
+`trim`, and `mix`.
 
-Dependencies are currently loaded with Aural. `Project.toml` declares compatible
-version ranges; the local ignored `Manifest.toml` records resolved versions.
+### Music and synthesis
 
-## Development
+`Pitch`, `Note`, `Tempo`, `NoteEvent`, `Score`, `midi`, `frequency`,
+`beats_to_seconds`, `duration_beats`, `oscillator`, `tone`, `noise`,
+`linear_ramp`, `exponential_ramp`, `ADSR`, `envelope`, `apply_envelope`,
+`note`, and `render`.
 
-The suite currently passes 757 assertions on Julia 1.12.7, including independent
-DFT/MFCC references, exhaustive small event-matching cases, external PCM WAV
-fixtures, and boundary regressions. This is not a claim of complete coverage:
-real-recording accuracy, cross-platform CI, and performance testing remain open
-in `TODOS.md`.
+### WAV I/O
 
-Timing clarification: `duration_beats(event)` is its duration, while
-`duration_beats(score)` is the latest event end. `trim` rounds nonempty bounds
-outward to sample cells and returns no samples for equal bounds.
+`read_audio` and `write_audio`.
 
-Run the test suite with:
+### Analysis
+
+`FrameGrid`, `frame`, `frame_times`, `STFT`, `Spectrogram`, `FeatureTrack`,
+`FeatureMatrix`, `stft`, `spectrogram`, `coefficients`, `power`, `frequencies`,
+`times`, `values`, `rms`, `spectral_centroid`, `spectral_flux`, `chroma`, and
+`mfcc`.
+
+### Events
+
+`EventAnnotations`, `EventScore`, `evaluate_events`, and `detect_onsets`.
+
+All of these names are explicitly exported from [`src/Aural.jl`](src/Aural.jl).
+
+## Documentation map
+
+- [`docs/README.md`](docs/README.md) — documentation index and package map.
+- [`docs/getting-started.md`](docs/getting-started.md) — installation,
+  conventions, and a complete first workflow.
+- [`docs/audio.md`](docs/audio.md) — `AudioBuffer` and audio operations.
+- [`docs/music-and-synthesis.md`](docs/music-and-synthesis.md) — symbolic music,
+  timing, synthesis helpers, and score rendering.
+- [`docs/analysis.md`](docs/analysis.md) — framing, STFT, spectrograms, and MIR
+  features.
+- [`docs/events-and-evaluation.md`](docs/events-and-evaluation.md) — onset
+  detection, annotations, and point-event metrics.
+- [`docs/development.md`](docs/development.md) — repository layout, testing, and
+  contribution workflow.
+
+The forward-looking roadmap is maintained in [`TODOS.md`](TODOS.md). It
+includes interval annotations, richer synthesis, resampling, inverse STFT,
+real-music benchmarks, CI, coverage, and performance work that are not part of
+the current API.
+
+## Testing
+
+Run the package test suite with:
 
 ```sh
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-If cold precompilation stalls in this environment, the verified fallback is:
+The suite covers the audio and music foundations, direct DFT and MFCC
+references, feature edge cases, exhaustive small event-matching cases, and
+external PCM WAV fixtures. It is not a claim of real-recording accuracy or
+complete branch coverage.
+
+If Julia's package usage log is unavailable in a restricted environment, run
+the test file directly while reusing existing compiled modules:
 
 ```sh
-JULIA_PKG_PRECOMPILE_AUTO=0 julia --startup-file=no --project=. -e 'using Pkg; Pkg.test(; julia_args=["--compiled-modules=existing"])'
+julia --startup-file=no --compiled-modules=existing --project=. -e \
+  'using Aural; include("test/runtests.jl")'
 ```
+
+## Current limitations
+
+- Audio is offline and in-memory; there is no device or realtime layer.
+- WAV reading defaults to `Float32`; writing converts samples to `Float32`.
+- Source bit-depth and metadata are not preserved by the WAV adapter.
+- `render` currently uses a sine voice; the richer oscillator and envelope
+  helpers are available for explicit offline composition but are not yet wired
+  into score rendering.
+- `spectrogram` stores squared FFT magnitudes, not calibrated PSD estimates.
+- Chroma and MFCC are deliberately simple baselines with documented fixed
+  conventions, not drop-in parity with every external MIR implementation.
+- Onset detection uses point-event F1 and has no adaptive threshold,
+  backtracking, beat tracking, or dataset evaluation.
+
+For planned work and explicit non-goals, see [`TODOS.md`](TODOS.md).

@@ -21,7 +21,10 @@ nframes(audio::AudioBuffer) = size(audio.samples, 2)
 duration(audio::AudioBuffer) = nframes(audio) / samplerate(audio)
 
 Base.size(audio::AudioBuffer) = size(audio.samples)
+Base.axes(audio::AudioBuffer) = axes(audio.samples)
 Base.getindex(audio::AudioBuffer, indices...) = getindex(audio.samples, indices...)
+Base.lastindex(audio::AudioBuffer) = lastindex(audio.samples)
+Base.lastindex(audio::AudioBuffer, d::Integer) = lastindex(audio.samples, d)
 Base.eltype(::Type{AudioBuffer{T,A}}) where {T,A} = T
 Base.copy(audio::AudioBuffer) = AudioBuffer(copy(audio.samples), audio.samplerate)
 
