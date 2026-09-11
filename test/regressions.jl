@@ -1,5 +1,7 @@
 import WAV
 
+# These tests protect behavior that is easy to regress while refactoring: data
+# ownership, boundary rounding, validation, and preservation of time units.
 @testset "Audio boundaries and ownership" begin
     data = [1.0, -2, 3, -4]
     audio = AudioBuffer(data, 4)
@@ -68,6 +70,7 @@ end
 end
 
 @testset "Independent spectral references" begin
+    # The direct DFT oracle makes the STFT tests independent of the FFT backend.
     # Direct DFT oracle, independent of FFTW and DSP, including odd FFT lengths.
     for nfft in (5, 8), window in (nothing, [0.2, 0.6, 0.8, 0.4])
         x = [0.25, -1, 0.75, 0.5]
@@ -109,6 +112,8 @@ end
 end
 
 # Exhaustive bipartite assignment oracle, without chronological assumptions.
+# It is intentionally slower than the production matcher and is used only to
+# verify the maximum-cardinality guarantee on small event sequences.
 function brute_matches(refs, preds, tolerance)
     isempty(refs) && return 0
     best = brute_matches(refs[2:end], preds, tolerance)

@@ -3,6 +3,8 @@ using Aural
 import DSP
 include("regressions.jl")
 
+# MIR tests use small synthetic signals so timing, metadata, and edge-case
+# behavior stay deterministic and fast enough for every supported Julia version.
 @testset "MIR events and evaluation" begin
     input = [2.0, 1.0]
     refs = EventAnnotations(input)
@@ -23,21 +25,51 @@ include("regressions.jl")
     @test evaluate_events(refs, EventAnnotations(Float64[])).false_negatives == 2
     @test_throws ArgumentError evaluate_events(refs, refs; tolerance=-1)
     @test_throws ArgumentError evaluate_events(refs, EventAnnotations([1]; kind=:beat))
+    annotated = EventAnnotations([0.4, 0.1]; strengths=[4., 1.])
+    @test times(annotated) == [0.1, 0.4]
+    @test strengths(annotated) == [1., 4.]
+    @test event_strengths(annotated) == strengths(annotated)
+    @test metadata(annotated) == (;)
+    @test timing_error(EventAnnotations([1., 2.]), EventAnnotations([1.1, 2.05]);
+                       tolerance=0.2) ≈ 0.075
+    @test_throws ArgumentError EventAnnotations([0.1]; strengths=[NaN])
+    @test_throws ArgumentError EventAnnotations([0.1]; strengths=[1., 2.])
     flux = FeatureTrack([0., 2, 2, 0, 3, 0], collect(0.:0.1:0.5), :spectral_flux)
     @test times(detect_onsets(flux; min_interval=0.05)) ≈ [0.1, 0.4]
     @test times(detect_onsets(flux; min_interval=0.35)) ≈ [0.4]
+    detected_with_strengths = detect_onsets(flux; return_strengths=true)
+    @test strengths(detected_with_strengths) ≈ [2., 3.]
+    @test times(detect_onsets(flux; latency_compensation=0.15)) ≈ [0., 0.25]
+    changing_flux = FeatureTrack([0., 1, 0, 10, 0], [0., 0.1, 0.2, 0.3, 0.4], :spectral_flux)
+    @test times(detect_onsets(changing_flux; threshold=0.5)) == [0.3]
+    @test times(detect_onsets(changing_flux; threshold=0.5,
+                              threshold_mode=:local, local_window=1)) == [0.1, 0.3]
     @test isempty(times(detect_onsets(FeatureTrack(zeros(4), collect(0.:3.), :spectral_flux))))
     @test_throws ArgumentError detect_onsets(flux; threshold=2)
+    @test_throws ArgumentError detect_onsets(flux; threshold_mode=:adaptive)
+    @test_throws ArgumentError detect_onsets(flux; local_window=0)
     @test_throws ArgumentError detect_onsets(FeatureTrack([1., 2], [0., 0], :spectral_flux))
     data = zeros(Float32, 8000)
     data[[2001, 4001, 6001]] .= 1
     detected = detect_onsets(AudioBuffer(data, 8000); window_size=128, hop_size=32)
     expected = EventAnnotations([0.25, 0.5, 0.75])
     @test evaluate_events(expected, detected; tolerance=0.016).f1 == 1
+    @test metadata(detected).source_frames == 8000
     @test length(detect_onsets(silence(0))) == 0
+    tempo = tempo_estimate(EventAnnotations(collect(0.:0.5:4.)))
+    @test tempo.bpm ≈ 120
+    @test tempo.confidence == 1
+    @test all(t -> t.kind == :beat, [beat_positions(tempo)])
+    @test times(beat_positions(tempo)) == collect(0.:0.5:4.)
+    empty_tempo = tempo_estimate(EventAnnotations(Float64[]))
+    @test empty_tempo.bpm == 0
+    @test empty_tempo.confidence == 0
+    @test isempty(beat_positions(empty_tempo))
 end
 
 @testset "MIR pipeline" begin
+    # This testset follows the intended host workflow:
+    # AudioBuffer -> shared frame config -> STFT/features -> events.
     audio = tone(1000, 0.128; samplerate=8000, amplitude=0.5)
     mktempdir() do dir
         path = joinpath(dir, "stereo.wav")
@@ -50,9 +82,16 @@ end
     end
     grid = FrameGrid(5; window_size=4, hop_size=2)
     @test frame(AudioBuffer(collect(1.0:5), 8), grid) == [1 3 5; 2 4 0; 3 5 0; 4 0 0]
+    settings = AnalysisConfig(window_size=4, hop_size=2, nfft=8, pad=true)
+    @test frame(AudioBuffer(collect(1.0:5), 8), settings) == frame(AudioBuffer(collect(1.0:5), 8), grid)
+    @test collect(eachframe(AudioBuffer(collect(1.0:5), 8), grid)) ==
+          [frame(AudioBuffer(collect(1.0:5), 8), grid)[:, i] for i in axes(frame(AudioBuffer(collect(1.0:5), 8), grid), 2)]
     @test frame_times(grid, 8) == [1.5, 3.5, 5.5] ./ 8
     @test length(FrameGrid(2; window_size=4, hop_size=2, pad=false)) == 0
     @test_throws ArgumentError FrameGrid(5; window_size=4, hop_size=5)
+    @test_throws ArgumentError AnalysisConfig(window_size=0)
+    @test_throws ArgumentError AnalysisConfig(window_size=4, hop_size=0)
+    @test_throws ArgumentError AnalysisConfig(window_size=4, nfft=2)
     transform = stft(audio; window_size=256, hop_size=128, nfft=512, pad=false)
     reference = DSP.stft(channel(audio, 1), 256, 128; nfft=512, window=DSP.hann)
     @test coefficients(transform) ≈ reference rtol=1e-6
@@ -62,6 +101,11 @@ end
     @test all(isapprox.(values(spectral_centroid(spec)), 1000; atol=1))
     @test all(isapprox.(values(rms(audio; window_size=256, hop_size=128, pad=false)), 0.5/sqrt(2); atol=1e-6))
     @test maximum(values(spectral_flux(spec))) < 1e-6
+    @test config(transform) == AnalysisConfig(window_size=256, hop_size=128, nfft=512,
+                                              pad=false)
+    @test source_frames(transform) == nframes(audio)
+    @test metadata(spec).layout == :frequency_bins_x_frames
+    @test times(rms(audio, config(transform))) == times(spec)
     empty_spec = spectrogram(silence(0); window_size=256, hop_size=128)
     @test size(power(empty_spec)) == (129, 0)
     @test isempty(values(spectral_centroid(empty_spec)))
@@ -73,6 +117,23 @@ end
     a = spectrogram(tone(440, 1; samplerate=8800); window_size=8800, hop_size=8800, window=nothing, pad=false)
     @test argmax(values(chroma(a))[:, 1]) == 10 # A, with C at row 1
     @test sum(values(chroma(a))) ≈ 1
+    @test all(isfinite, values(spectral_bandwidth(spec)))
+    @test values(spectral_rolloff(spec; fraction=0.5))[1] >= 0
+    @test all(x -> 0 <= x <= 1, values(spectral_flatness(spec)))
+    short_audio = AudioBuffer([-1., 1., -1., 1.], 4)
+    @test values(zero_crossing_rate(short_audio; window_size=4, hop_size=4, pad=false)) == [1.]
+    @test values(dc_offset(short_audio; window_size=4, hop_size=4, pad=false)) == [0.]
+    @test values(crest_factor(AudioBuffer([1., -1., 0., 0.], 4);
+                              window_size=4, hop_size=4, pad=false))[1] ≈ sqrt(2)
+    @test values(amplitude_db(AudioBuffer(ones(4), 4);
+                              window_size=4, hop_size=4, pad=false))[1] ≈ 0
+    @test size(values(power_db(spec))) == size(power(spec))
+    @test_throws ArgumentError stft(AudioBuffer([NaN], 1); window_size=1, hop_size=1)
+    pitch_audio = tone(440, 1; samplerate=8000)
+    pitch = pitch_track(pitch_audio; fmin=400, fmax=500,
+                        window_size=1024, hop_size=512, pad=false)
+    @test values(pitch)[cld(length(pitch), 2)] ≈ 440 atol=20
+    @test confidence(pitch)[cld(length(pitch), 2)] > 0.8
     @test size(values(mfcc(spec))) == (13, 7)
     @test times(mfcc(spec)) == times(spec)
     @test_throws ArgumentError mfcc(spec; ncoeffs=41)
@@ -80,6 +141,7 @@ end
 end
 
 @testset "AudioBuffer" begin
+    # The audio model is channel-major and sample-rate preserving.
     audio = AudioBuffer(Float32[0, 0.5, -1, 0.25], 1_000)
 
     @test size(audio) == (1, 4)
@@ -106,6 +168,8 @@ end
 end
 
 @testset "Music model" begin
+    # Symbolic positions are measured in beats until a Tempo converts them to
+    # seconds for rendering.
     middle_c = Note(:C, 4)
     @test midi(middle_c) == 60
     @test frequency(middle_c) ≈ 261.6255653005986

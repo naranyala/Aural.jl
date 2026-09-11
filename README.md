@@ -27,9 +27,12 @@ streaming, MIDI, codec support beyond WAV, or machine-learning integrations.
 - `render` turns a constant-tempo score into audio with its current sine voice.
 - `read_audio` and `write_audio` adapt WAV files through WAV.jl.
 - `stft` and `spectrogram` provide one-sided FFT analysis.
-- Baseline RMS, spectral centroid, spectral flux, chroma, and MFCC features are
-  available for offline experiments.
-- `detect_onsets` and `evaluate_events` provide point-event onset baselines.
+- Baseline RMS, spectral centroid, spectral flux, bandwidth, rolloff, flatness,
+  zero-crossing rate, crest factor, DC offset, dB, chroma, MFCC, and
+  autocorrelation pitch features are available for offline experiments.
+- `detect_onsets` supports global/local thresholds, latency compensation, and
+  optional strengths; `evaluate_events`, `timing_error`, and `tempo_estimate`
+  provide point-event and rhythm baselines.
 
 The package is version `0.1.0` and targets Julia `1.10` or newer. The current
 development and verification environment uses Julia 1.12.7.
@@ -100,13 +103,15 @@ ends at the latest event end. See
 using Aural
 
 audio = mono(read_audio("tone.wav"))
-spec = spectrogram(audio; window_size=2_048, hop_size=512, pad=false)
+settings = AnalysisConfig(window_size=2_048, hop_size=512, nfft=2_048, pad=false)
+spec = spectrogram(audio, settings)
 
 centroid = spectral_centroid(spec)
 flux = spectral_flux(spec)
 pitch_classes = chroma(spec)
 cepstra = mfcc(spec; nfilters=40, ncoeffs=13)
-energy = rms(audio; window_size=2_048, hop_size=512, pad=false)
+energy = rms(audio, settings)
+pitch = pitch_track(audio, settings)
 
 values(cepstra)  # coefficients × analysis frames
 times(cepstra)   # seconds, shared with the spectrogram
@@ -128,12 +133,14 @@ reference = EventAnnotations([0.42, 1.07, 1.84]; kind=:onset)
 
 score = evaluate_events(reference, estimated; tolerance=0.05)
 (score.precision, score.recall, score.f1)
+timing_error(reference, estimated; tolerance=0.05)
 ```
 
 The detector is an offline spectral-flux baseline. It uses frame-center times,
-does not backtrack peaks, and may miss an attack in the first frame. Event
-matching is inclusive, one-to-one, and maximizes the number of matches; it is
-not a beat-continuity or note-transcription metric. See
+supports local thresholds and explicit latency compensation, and may miss an
+attack in the first frame. Event matching is inclusive, one-to-one, and
+maximizes the number of matches; it is not a beat-continuity or
+note-transcription metric. See
 [`docs/events-and-evaluation.md`](docs/events-and-evaluation.md).
 
 ## Public API at a glance
@@ -157,14 +164,16 @@ not a beat-continuity or note-transcription metric. See
 
 ### Analysis
 
-`FrameGrid`, `frame`, `frame_times`, `STFT`, `Spectrogram`, `FeatureTrack`,
-`FeatureMatrix`, `stft`, `spectrogram`, `coefficients`, `power`, `frequencies`,
-`times`, `values`, `rms`, `spectral_centroid`, `spectral_flux`, `chroma`, and
-`mfcc`.
+`AnalysisConfig`, `validate_audio`, `FrameGrid`, `frame`, `eachframe`,
+`frame_times`, `STFT`, `Spectrogram`, `FeatureTrack`, `FeatureMatrix`, `stft`,
+`spectrogram`, `coefficients`, `power`, `frequencies`, `times`, `values`,
+`metadata`, `config`, `source_frames`, `confidence`, `rms`, spectral scalar
+features, `chroma`, `mfcc`, and `pitch_track`.
 
 ### Events
 
-`EventAnnotations`, `EventScore`, `evaluate_events`, and `detect_onsets`.
+`EventAnnotations`, `EventScore`, `evaluate_events`, `timing_error`,
+`detect_onsets`, `TempoEstimate`, `tempo_estimate`, and `beat_positions`.
 
 All of these names are explicitly exported from [`src/Aural.jl`](src/Aural.jl).
 
@@ -178,15 +187,20 @@ All of these names are explicitly exported from [`src/Aural.jl`](src/Aural.jl).
   timing, synthesis helpers, and score rendering.
 - [`docs/analysis.md`](docs/analysis.md) — framing, STFT, spectrograms, and MIR
   features.
-- [`docs/events-and-evaluation.md`](docs/events-and-evaluation.md) — onset
-  detection, annotations, and point-event metrics.
+- [`docs/events-and-evaluation.md`](docs/events-and-evaluation.md) — onset,
+  tempo, beat annotations, and point-event metrics.
 - [`docs/development.md`](docs/development.md) — repository layout, testing, and
   contribution workflow.
+- [`CHANGELOG.md`](CHANGELOG.md) — released and unreleased public changes.
 
 The forward-looking roadmap is maintained in [`TODOS.md`](TODOS.md). It
 includes interval annotations, richer synthesis, resampling, inverse STFT,
 real-music benchmarks, CI, coverage, and performance work that are not part of
 the current API.
+
+For a compact host-style summary workflow, run
+[`examples/analysis_summary.jl`](examples/analysis_summary.jl) with no argument
+for a generated tone or with a WAV path as its first argument.
 
 ## Testing
 
@@ -220,7 +234,7 @@ julia --startup-file=no --compiled-modules=existing --project=. -e \
 - `spectrogram` stores squared FFT magnitudes, not calibrated PSD estimates.
 - Chroma and MFCC are deliberately simple baselines with documented fixed
   conventions, not drop-in parity with every external MIR implementation.
-- Onset detection uses point-event F1 and has no adaptive threshold,
-  backtracking, beat tracking, or dataset evaluation.
+- Onset detection uses point-event F1 and has no streaming state, sub-frame
+  backtracking, beat-continuity scoring, or dataset evaluation.
 
 For planned work and explicit non-goals, see [`TODOS.md`](TODOS.md).

@@ -22,6 +22,21 @@ The normal command is:
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
+The compact analysis smoke workflow can be run with:
+
+```sh
+julia --project=. examples/analysis_summary.jl [path/to/audio.wav]
+```
+
+For a simple allocation/elapsed-time baseline on longer inputs:
+
+```sh
+julia --project=. benchmark/analysis.jl 10
+```
+
+These scripts intentionally use only the package's exported API, making them
+useful as host-integration and performance sanity checks.
+
 The test suite includes:
 
 - package load and public API checks;

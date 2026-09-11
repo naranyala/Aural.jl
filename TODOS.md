@@ -4,11 +4,18 @@ Personal audio and music-processing toolkit for Julia.
 
 ## Product Direction
 
+`Aural.jl` is the reusable audio and music-processing layer. It should remain
+useful from a Julia session, notebook, batch job, test suite, or another host
+application without requiring WebView, Preact, JSON3, LinuxCompanion, or a
+desktop session.
+
 ### Current Status
 
-- **Tests**: 849 passing assertions on Julia 1.12.7 (parameterized counts).
+- **Tests**: Baseline package/regression coverage plus focused contract tests
+  for shared analysis settings, provenance, enriched features, pitch, onset
+  strengths, timing error, tempo, and beat annotations.
 - **Coverage**: AudioBuffer, music model, synthesis, WAV I/O, STFT/spectrogram,
-  baseline features (RMS, centroid, flux, chroma, MFCC), onset detection,
+  baseline and enriched features, onset detection, tempo/beat primitives, and
   event evaluation with exhaustive oracle.
 - **Dependencies**: DSP 0.8.6, FFTW 1.10.0, WAV 1.2.0 (all runtime).
 - **Branch**: `main`, pushed to GitHub.
@@ -18,6 +25,237 @@ Personal audio and music-processing toolkit for Julia.
 `duration_beats(event)` returns the event's duration; `duration_beats(score)`
 returns the latest event end. Compute an event's end as
 `event.start_beat + duration_beats(event)`.
+
+## Ownership Boundary With `webview-app-with-julia`
+
+The two repositories are intentionally layered:
+
+| Concern | Aural.jl owns | webview-app-with-julia owns |
+| --- | --- | --- |
+| Audio data | `AudioBuffer`, sample-rate/layout invariants, sample conversion policy | Input selection, path permissions, cache locations, and lifecycle |
+| Processing | Synthesis, mixing, framing, FFT features, onset/event algorithms | Choosing an analysis profile and scheduling work |
+| Results | Julia result types, feature names, units, timestamps, provenance | Versioned JSON DTOs, frontend validation, display, export, and persistence |
+| File I/O | Reusable WAV adapter and future format adapters | File discovery, supported-format messaging, and user-facing errors |
+| Runtime | Offline, deterministic, in-memory operations | WebView bridge, jobs, cancellation, resource limits, and UI responsiveness |
+
+`Aural.jl` may be consumed by the app, but must not import app modules or
+depend on WebView, Preact, JSON3, LinuxCompanion, or application state. The app
+must call only Aural's exported API and keep its JSON/bridge translation in an
+app-owned adapter. Do not pass `AudioBuffer`, `Spectrogram`, or internal arrays
+directly across the WebView boundary.
+
+## Cross-Project Integration Contract
+
+- Develop against `../Aural.jl` with `Pkg.develop(path="../Aural.jl")`; use a
+  registered or tagged Aural release before distributing the app.
+- Treat `AudioBuffer` as `channels × frames`, with sample rate in samples per
+  second. Convert browser/bridge input explicitly and validate finite samples,
+  positive rates, channel count, and input-size limits in the app.
+- Use `read_audio`/`write_audio` only for the formats Aural actually supports.
+  Unsupported codecs belong behind optional adapters; they do not expand the
+  core API implicitly.
+- Keep app-facing response names stable even if an Aural result type changes.
+  A response should include an explicit schema version, source metadata,
+  analysis settings, timestamps, values, warnings, and provenance.
+- Return small summaries by default. Large spectra, frame matrices, and raw
+  samples should be paged, downsampled, cached, or written to an app-owned
+  artifact rather than embedded in one WebView response.
+- Keep long-running work off the WebView request loop. Aural remains a
+  synchronous library; the host owns worker threads/tasks, cancellation, and
+  progress reporting.
+- Add cross-project contract tests for representative WAV input, malformed
+  input, empty/short signals, unsupported formats, numerical tolerances, and
+  error-code translation.
+
+## High-Leverage Backlog
+
+These are the recommended next investments for the current codebase. They are
+ordered by how many later features they unlock. Complete these before adding
+more specialized effects, codecs, or machine-learning integrations.
+
+### HL-1: Freeze the analysis contract and provenance [x]
+
+The current analysis functions repeat framing keywords and return lightweight
+containers with only partial metadata. A stable configuration/result contract
+will make every future feature and host integration easier to trust.
+
+- [x] Introduce a small immutable `AnalysisConfig`/`FrameConfig` describing
+  channel policy, window, window size, hop size, FFT size, and padding.
+- [x] Make `stft`, `rms`, and future frame-based features accept the shared
+  config while preserving their current keyword forms as compatibility sugar.
+- [x] Add validated metadata accessors for source frames, sample rate, frame
+  centers, frequency axis, and the exact configuration used.
+- [x] Strengthen `FeatureTrack` and `FeatureMatrix` invariants: matching
+  lengths/shapes, finite and ordered timestamps, and explicit empty behavior.
+- [x] Document a versioned convention for frame centers, padded tails, array
+  orientation, and units; add migration notes before changing defaults.
+
+**Acceptance**: Every frame-based result can be interpreted without inspecting
+private fields, and two features computed from the same config have identical
+frame timing and provenance.
+
+### HL-2: Build a validated, reusable feature foundation [ ]
+
+The existing RMS/centroid/flux/chroma/MFCC primitives are useful baselines,
+but common features and numerical conventions are still scattered or absent.
+
+- [x] Add one shared finite-input and channel-policy validation path for all
+  analysis entry points.
+- [x] Add `spectral_bandwidth`, `spectral_rolloff`, `spectral_flatness`, and
+  `zero_crossing_rate` with explicit frequency/power and threshold semantics.
+- [x] Add `crest_factor`, `dc_offset`, `amplitude_db`, and `power_db` with a
+  documented reference level and a defined silent-signal result.
+- [ ] Add optional normalization/calibration for one-sided spectra; keep the
+  current squared-magnitude behavior available and clearly named.
+- [ ] Add sine, silence, impulse, noise, and stereo reference fixtures with
+  expected values and numerical tolerances.
+
+**Acceptance**: A host can request a coherent fundamental feature set and get
+finite, time-aligned results with documented behavior for silence, NaN/Inf,
+short signals, padding, and multichannel input.
+
+### HL-3: Make analysis bounded and allocation-aware [ ]
+
+`frame` currently materializes a complete window matrix and `stft` allocates a
+temporary FFT buffer per analysis call. That is fine for small experiments but
+will become the main limit for long recordings and desktop use.
+
+- [x] Separate a materialized `frame` convenience API from an iterator,
+  callback, or chunked frame-processing API.
+- [x] Reuse scratch buffers and windows in STFT/feature pipelines where this
+  does not compromise thread safety or result ownership.
+- [ ] Add chunked processing for feature tracks and compact summaries without
+  requiring the full recording or full feature matrix in memory.
+- [ ] Add `BenchmarkTools.jl` benchmarks for bounded windows, ten-minute mono
+  audio, stereo downmixing, and repeated analyses.
+- [ ] Record allocation, throughput, and peak-memory budgets for the host app;
+  add regression thresholds only after measuring realistic hardware.
+
+**Acceptance**: Long-file analysis has a documented memory bound, repeated
+analysis does not retain scratch buffers or source arrays unexpectedly, and
+performance regressions are visible in CI or a reproducible benchmark command.
+
+### HL-4: Turn onset analysis into a dependable MIR primitive [ ]
+
+Onset detection is already the package's first end-to-end MIR workflow. Making
+it robust creates value for rhythm, segmentation, visualization, and future
+tempo estimation.
+
+- [x] Add adaptive/local threshold options alongside the current global
+  threshold fraction.
+- [x] Add peak backtracking or a documented latency-compensation policy.
+- [ ] Add a streaming/chunked peak picker with state carried across chunks.
+- [x] Return optional onset strengths/confidence values and preserve source
+  frame provenance.
+- [ ] Add a small versioned annotated fixture set and report precision, recall,
+  F1, and timing error separately.
+
+**Acceptance**: The detector behaves predictably on silence, impulses,
+repeated transients, plateaus, and chunk boundaries, and its metrics can be
+reproduced from checked-in fixtures.
+
+### HL-5: Add pitch and rhythm primitives with confidence [ ]
+
+Chroma describes pitch classes but does not identify fundamental frequency or
+musical time. These are the next enriched features with broad product value.
+
+- [x] Add monophonic fundamental-frequency tracking with configurable range,
+  confidence, and explicit unvoiced/ambiguous states.
+- [x] Add tempo estimation from onset/flux evidence with confidence and a
+  clearly documented BPM range and octave-error policy.
+- [x] Add beat positions as a separate annotation type; do not overload point
+  onset annotations with beat-continuity semantics.
+- [ ] Add pitch/tempo/beat evaluation metrics and reference fixtures before
+  exposing convenience APIs as production-quality results.
+
+**Acceptance**: Pitch and rhythm outputs include confidence and provenance,
+handle silence and noisy input explicitly, and are evaluated on deterministic
+fixtures rather than only synthetic happy paths.
+
+### HL-6: Make the package releasable and easy to adopt [ ]
+
+The code is useful, but adoption is limited until its compatibility, quality,
+and dependency story is reproducible outside the development machine.
+
+- [x] Add CI for the declared Julia support range, including Julia 1.10 and the
+  current development version.
+- [ ] Add Aqua/package-structure checks, clean-environment tests, and a reliable
+  cold-start/precompilation measurement.
+- [ ] Add a tagged release and license.
+- [x] Maintain a changelog and compatibility notes.
+- [x] Add a minimal host-integration example.
+- [ ] Keep optional codecs, devices, plotting, and ML integrations behind
+  extensions or separate packages; test dependency/license obligations.
+- [ ] Define which APIs are stable, experimental, or internal before changing
+  `AudioBuffer` or analysis result representations.
+
+**Acceptance**: A new user can install a tagged release in a clean Julia
+environment, run the documented analysis example, and understand the support
+limits without reading repository history.
+
+These six items are the execution shortlist. The feature bundles below and the
+larger possibility map remain idea pools; promote an item only when it has a
+concrete use case, API shape, reference behavior, and test plan.
+
+## Enriched Feature Roadmap
+
+The feature roadmap is deliberately staged. Each feature must have defined
+units, timestamp semantics, edge-case behavior, a reference signal, and an
+app-usable summary before it is considered complete.
+
+### Feature bundle A: trustworthy fundamentals [CURRENT/NEXT]
+
+- [x] RMS, peak, spectral centroid, spectral flux, chroma, MFCC, and onset
+  baselines.
+- [x] Add bandwidth, rolloff, flatness, crest factor, decibel/dBFS, DC offset,
+  and zero-crossing helpers with explicit conventions.
+- [x] Add feature provenance: window, hop, FFT size, padding, channel, tuning,
+  mel configuration, and source sample rate.
+- [x] Define a common `AnalysisConfig` and stable result metadata without
+  forcing JSON or UI concerns into the library.
+
+### Feature bundle B: richer time-frequency analysis [ ]
+
+- [ ] Add calibrated power/PSD options alongside the current squared-magnitude
+  spectrogram.
+- [ ] Add inverse STFT with overlap-add reconstruction tests.
+- [ ] Add constant-Q/chroma variants only after documenting tuning, octave,
+  normalization, and frequency-bin policies.
+- [ ] Add reusable window/filter helpers and avoid duplicating DSP.jl types in
+  the public API.
+
+### Feature bundle C: pitch, rhythm, and events [ ]
+
+- [x] Add fundamental-frequency tracking with confidence and unvoiced states.
+- [x] Add tempo and beat representations separate from point onset events;
+  downbeat and meter remain future work.
+- [ ] Add interval annotations for notes/chords and continuous pitch tracks.
+- [ ] Add beat-continuity and note/chord metrics in addition to point-event F1.
+- [ ] Benchmark against small, versioned real-recording fixtures and publish
+  known failure modes.
+
+### Feature bundle D: practical audio processing [ ]
+
+- [ ] Add fades, concatenation, clipping/saturation, filtering, resampling,
+  convolution, and delay with explicit latency and channel rules.
+- [ ] Add loudness/true-peak measurements when a documented reference and use
+  case exist.
+- [ ] Add chunked processing interfaces for recordings that do not fit memory.
+- [ ] Keep realtime/device APIs optional and separate from the offline core.
+
+### Feature bundle E: higher-level and optional integrations [ ]
+
+- [ ] Add MIDI import/export and map external metadata into `Score` explicitly.
+- [ ] Add similarity/fingerprinting and embedding adapters without making ML a
+  core dependency.
+- [ ] Add optional FLAC/Ogg/Opus/MP3 adapters behind separate extensions or
+  packages.
+- [ ] Add serialization for scores, annotations, configs, and feature summaries
+  with schema/version migration rules.
+
+For the WebView product, the app backlog should select a small profile from
+these bundles and define its JSON shape. Aural should not implement product
+features merely because the frontend can display them.
 
 ## Session Groups
 
@@ -166,6 +404,26 @@ Prepare for use and potential publication.
 - [ ] Define contribution, attribution, and citation requirements if public.
 
 **Acceptance**: License chosen; docs build; changelog exists.
+
+### Session 11: Host Integration Support [ ]
+
+Make Aural straightforward to consume from applications without moving
+application policy into the library.
+
+- [ ] Add a small host-integration example: WAV input → analysis profile →
+  compact summary and feature artifact.
+- [ ] Define stable accessors for feature metadata, timestamps, values, and
+  provenance so hosts do not depend on private fields.
+- [ ] Add bounded-window and larger-file benchmarks for the feature bundles
+  used by `webview-app-with-julia`.
+- [ ] Publish a tagged release with compatibility notes, dependency/license
+  information, and migration guidance.
+- [ ] Add cross-project fixtures and contract tests without importing WebView,
+  JSON3, or frontend code into Aural.
+
+**Acceptance**: A host can depend on a tagged Aural release, run a documented
+offline analysis, serialize its own response shape, and upgrade Aural without
+private API coupling.
 
 ## Design Principles
 

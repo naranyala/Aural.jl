@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Julia ${{ matrix.julia-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Stable releases are required to pass; nightly provides early
+        # compatibility feedback while allowing upstream breakage temporarily.
+        include:
+          - julia-version: '1.10'
+            allow-failure: false
+          - julia-version: '1.12'
+            allow-failure: false
+          - julia-version: 'nightly'
+            allow-failure: true
+    continue-on-error: ${{ matrix.allow-failure }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+      # Cache the Julia depot and package artifacts to keep repeated CI runs
+      # focused on source compatibility rather than dependency downloads.
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - uses: julia-actions/julia-runtest@v1

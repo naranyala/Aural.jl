@@ -1,5 +1,8 @@
 """Small symbolic music types used by the initial offline renderer."""
 
+# Music-domain positions are expressed in beats; conversion to seconds is
+# deliberately deferred until rendering so a score can be retimed cheaply.
+
 struct Pitch
     midi::Float64
 
@@ -27,6 +30,7 @@ const PITCH_CLASSES = Dict(
 )
 
 function Note(name::Symbol, octave::Integer; accidental::Integer=0)
+    # MIDI's octave convention is used here: C4 is MIDI note 60.
     pitch_class = get(PITCH_CLASSES, name, nothing)
     pitch_class === nothing &&
         throw(ArgumentError("unknown note name: $name"))
@@ -56,6 +60,8 @@ struct NoteEvent
 
     function NoteEvent(note::Note, start_beat::Real, duration_beats::Real;
                        velocity::Real=1.0, channel::Integer=1)
+        # Validate at construction time so renderers can assume every event is
+        # finite, audible, and addressable by a valid MIDI-style channel.
         isfinite(start_beat) && start_beat >= 0 ||
             throw(ArgumentError("start_beat must be non-negative and finite"))
         isfinite(duration_beats) && duration_beats > 0 ||
@@ -75,6 +81,8 @@ struct Score
 end
 
 function Score(events::AbstractVector{<:NoteEvent}; tempo::Tempo=Tempo(120))
+    # Store a sorted copy: callers may reuse or mutate their input collection
+    # without changing the score's event order or ownership.
     ordered = sort!(collect(events), by=event -> event.start_beat)
     return Score(ordered, tempo)
 end

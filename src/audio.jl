@@ -1,6 +1,9 @@
 """A small, dependency-free representation of sampled audio."""
 
 struct AudioBuffer{T,A<:AbstractMatrix{T}}
+    # Samples are always channel-major: rows are channels, columns are frames.
+    # Keeping this invariant makes slicing and interop predictable throughout
+    # the package, even though WAV files commonly use the opposite layout.
     samples::A
     samplerate::Int
 
@@ -30,11 +33,15 @@ Base.copy(audio::AudioBuffer) = AudioBuffer(copy(audio.samples), audio.samplerat
 
 function channel(audio::AudioBuffer, index::Integer)
     1 <= index <= nchannels(audio) || throw(BoundsError(audio, index))
+    # Return an owned vector so callers cannot mutate the buffer accidentally
+    # through a view into its backing matrix.
     return vec(copy(@view audio.samples[index, :]))
 end
 
 function mono(audio::AudioBuffer)
     nchannels(audio) == 1 && return copy(audio)
+    # Downmixing is an arithmetic mean, preserving the sample-rate and frame
+    # count while avoiding a channel-dependent amplitude increase.
     mixed = sum(audio.samples; dims=1) ./ nchannels(audio)
     return AudioBuffer(Array(mixed), samplerate(audio))
 end
@@ -90,6 +97,8 @@ function trim(audio::AudioBuffer, start_seconds::Real, stop_seconds::Real)
         throw(ArgumentError("trim requires 0 <= start <= stop"))
     start_seconds == stop_seconds && return AudioBuffer(audio.samples[:, 1:0], samplerate(audio))
 
+    # Floor the start and ceil the stop so a non-empty time interval includes
+    # every sample cell it touches; both bounds are then clamped to the audio.
     first_frame = clamp(floor(Int, start_seconds * samplerate(audio)) + 1,
                         1, nframes(audio) + 1)
     last_frame = clamp(ceil(Int, stop_seconds * samplerate(audio)),
@@ -107,6 +116,9 @@ function mix(first::AudioBuffer, second::AudioBuffer; offset::Real=0)
     isfinite(offset) && offset >= 0 ||
         throw(ArgumentError("offset must be finite and non-negative"))
 
+    # Offsets are quantized to the nearest frame because AudioBuffer has no
+    # fractional-sample representation. The output is long enough for both
+    # contributions and starts as silence so gaps remain explicit.
     offset_frames = round(Int, offset * samplerate(first))
     total_frames = max(nframes(first), offset_frames + nframes(second))
     sample_type = promote_type(eltype(first.samples), eltype(second.samples))

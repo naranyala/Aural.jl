@@ -33,6 +33,33 @@ after the end of the original recording.
 `1:window_size`. `frame` also requires the grid's signal length to match the
 audio buffer.
 
+For repeatable pipelines, use `AnalysisConfig` as the single source of
+framing truth:
+
+```julia
+settings = AnalysisConfig(window_size=1024, hop_size=256, nfft=2048,
+                          channel=1, window=:hann, pad=false)
+transform = stft(audio, settings)
+energy = rms(audio, settings)
+```
+
+`eachframe(audio, settings)` provides the same frame grid without materializing
+the full `window_size × number_of_frames` matrix. Each frame is an owned vector;
+the iterator is intended for bounded-memory feature calculations.
+
+## Analysis contract v1
+
+The current result metadata uses `analysis_version=1`. Frame centers are
+zero-based sample centers, timestamps are seconds, padded tails are zero-filled,
+and the source audio convention is `channels × frames`. `STFT` and
+`Spectrogram` use `frequency_bins × frames`; scalar tracks use one value per
+frame; matrix features use `features × frames`. `metadata(result)` also
+identifies the exact `AnalysisConfig`, sample rate, selected channel, and source
+layout; `samplerate(result)` is also available for STFT and spectrogram
+results. Existing keyword calls and the legacy six-argument result constructors
+remain accepted; new integrations should prefer the shared config and metadata
+accessors.
+
 ## STFT and spectrograms
 
 ```julia
@@ -62,7 +89,9 @@ kwargs...))`.
 ## Scalar feature tracks
 
 Feature tracks contain one value per analysis frame and expose `values(track)`
-and `times(track)`.
+and `times(track)`. Timestamps are finite, non-negative, and strictly
+increasing; empty tracks are valid. Feature matrices use rows for features and
+columns for frames, with the same timestamp invariant.
 
 ```julia
 energy = rms(audio; window_size=2_048, hop_size=512, pad=false)
@@ -80,6 +109,26 @@ The current definitions are:
   with zero for the first frame.
 
 `rms` uses channel 1 by default and otherwise follows `FrameGrid` behavior.
+Every analysis result exposes `metadata(result)`, including the exact config,
+source frame count, sample rate, channel, and layout where applicable. Use
+`config(result)` and `source_frames(result)` for the common fields.
+
+Additional scalar tracks are available for spectral bandwidth, rolloff,
+flatness, zero-crossing rate, crest factor, DC offset, and amplitude in dB.
+`power_db(spec)` returns a matrix-valued dB feature. dB features use a positive
+reference and floor; silent RMS frames evaluate to `20*log10(floor/reference)`.
+
+`pitch_track` is a monophonic autocorrelation baseline:
+
+```julia
+pitch = pitch_track(audio; fmin=60, fmax=1000, confidence_threshold=0.4)
+pitch.values       # 0.0 denotes unvoiced/ambiguous frames
+confidence(pitch)  # one confidence value per frame
+```
+
+Pitch values are only reported when the normalized autocorrelation reaches the
+configured confidence threshold. This is deterministic and useful for
+prototyping, but it is not a polyphonic or noise-robust pitch tracker.
 
 ## Chroma
 

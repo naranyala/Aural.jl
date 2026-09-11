@@ -24,6 +24,9 @@ function oscillator(frequency_hz::Real, duration_seconds::Real;
     isfinite(amplitude) || throw(ArgumentError("amplitude must be finite"))
     isfinite(phase) || throw(ArgumentError("phase must be finite"))
 
+    # Sample zero is evaluated at t=0, so phase is independent of the
+    # requested duration and the generated buffer has exactly the rounded
+    # duration in frames.
     frames = round(Int, duration_seconds * samplerate)
     data = Matrix{Float32}(undef, 1, frames)
     for frame in 1:frames
@@ -71,6 +74,8 @@ function noise(duration_seconds::Real;
     samplerate > 0 || throw(ArgumentError("samplerate must be positive"))
     isfinite(amplitude) || throw(ArgumentError("amplitude must be finite"))
 
+    # Keep the random source at the synthesis boundary; callers can control
+    # reproducibility with Julia's normal random-number seeding tools.
     frames = round(Int, duration_seconds * samplerate)
     data = randn(Float32, 1, frames) .* Float32(amplitude)
     return AudioBuffer(data, samplerate)
@@ -154,6 +159,8 @@ function envelope(adsr::ADSR, duration_seconds::Real;
         throw(ArgumentError("duration must be finite and non-negative"))
     samplerate > 0 || throw(ArgumentError("samplerate must be positive"))
 
+    # When the requested note is shorter than its envelope phases, compress
+    # attack/decay/release together instead of silently dropping a phase.
     dur = Float64(duration_seconds)
     total_phase = adsr.attack + adsr.decay + adsr.release
     scale = total_phase > dur ? dur / total_phase : 1.0
@@ -167,6 +174,8 @@ function envelope(adsr::ADSR, duration_seconds::Real;
     att_frames = round(Int, att * samplerate)
     dec_frames = round(Int, dec * samplerate)
     sus_frames = round(Int, sus * samplerate)
+    # Derive release from the remainder so rounding cannot make the phases
+    # exceed the exact output length.
     rel_frames = frames - att_frames - dec_frames - sus_frames
 
     idx = 0
@@ -200,6 +209,8 @@ end
 function apply_envelope(audio::AudioBuffer, env::AudioBuffer)
     nframes(audio) == nframes(env) ||
         throw(ArgumentError("audio and envelope must have the same number of frames"))
+    # Broadcasting preserves the channel-major layout and lets a one-channel
+    # envelope scale a matching one-channel signal without special casing.
     return AudioBuffer(audio.samples .* env.samples, samplerate(audio))
 end
 
@@ -227,6 +238,8 @@ function render(score::Score; samplerate::Integer=48_000, amplitude::Real=0.2)
     samplerate > 0 || throw(ArgumentError("samplerate must be positive"))
     isfinite(amplitude) || throw(ArgumentError("amplitude must be finite"))
 
+    # Rendering is intentionally simple and deterministic: each event becomes
+    # an independent voice, then voices are accumulated on a shared timeline.
     total_seconds = beats_to_seconds(duration_beats(score), score.tempo)
     output = silence(total_seconds; samplerate=samplerate, channels=1, T=Float32)
     for event in score

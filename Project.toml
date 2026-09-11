@@ -3,12 +3,15 @@ uuid = "e8479a5c-c6f7-4092-bed7-8bd56c46a99d"
 version = "0.1.0"
 authors = ["Personal project"]
 
+# Keep the runtime dependency set small: DSP/FFTW power analysis, while WAV
+# is only needed at the file-system boundary.
 [deps]
 DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 WAV = "8149f6b0-98f6-5db9-b78f-408fbbb8ef88"
 
 [compat]
+# Julia 1.10 is the baseline used by the package and CI's stable jobs.
 DSP = "0.8.6"
 FFTW = "1.10.0"
 WAV = "1.2.0"
