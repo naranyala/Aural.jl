@@ -59,10 +59,10 @@ spectral flux, and applies the feature-track detector. It defaults to
 `hop_size`, `nfft`, `channel`, and `window` can be supplied. Returned events
 whose frame time is at or beyond the recording duration are removed.
 
-This is an offline baseline. It uses frame centers and does not estimate
-sub-frame timing. Latency compensation is an explicit caller-selected shift;
-it does not infer the true attack location. It may miss an attack that occurs
-in the first analysis frame and is not a streaming detector.
+The audio detector operates offline. It uses frame centers and does not
+estimate sub-frame timing. Latency compensation is an explicit caller-selected
+shift; it does not infer the true attack location. The detector may miss an
+attack in the first analysis frame and is not a streaming detector.
 
 ## Tempo and beats
 
@@ -77,9 +77,9 @@ beat_positions(estimate)
 metadata(estimate)
 ```
 
-The current deterministic baseline uses the median positive onset interval and
-normalizes octave errors into the requested BPM range. Confidence decreases as
-the interval spread grows. Beat positions are returned as `kind=:beat`
+The deterministic method uses the median positive onset interval and normalizes
+octave errors into the requested BPM range. Confidence decreases as the
+interval spread grows. Beat positions are returned as `kind=:beat`
 annotations, so downstream code can keep onset scoring and beat-continuity
 logic separate. With fewer than two usable events, BPM and confidence are zero
 and the beat sequence is empty. Tempo metadata records the BPM range, source
@@ -112,4 +112,4 @@ point-event scoring, not interval overlap, beat continuity, transcription
 accuracy, or corpus-level evaluation.
 
 Streaming peak picking, corpus fixtures, beat-continuity metrics, and benchmark
-aggregation remain future work listed in [`../TODOS.md`](../TODOS.md).
+aggregation are not implemented; they are listed in [`../TODOS.md`](../TODOS.md).

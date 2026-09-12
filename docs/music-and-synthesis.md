@@ -39,7 +39,7 @@ tempo = Tempo(120)
 beats_to_seconds(1, tempo)  # 0.5
 ```
 
-Beats and seconds are intentionally separate. `NoteEvent` uses beats for its
+Beats and seconds are distinct units. `NoteEvent` uses beats for its
 start and duration, while `EventAnnotations` and audio analysis use seconds.
 
 ## Events and scores
@@ -56,7 +56,7 @@ score = Score([
 velocity in `[0, 1]`, and MIDI channel in `1:16`. `Score` copies and sorts its
 events by `start_beat`; iterating a score yields the ordered events.
 
-There are two deliberately different duration meanings:
+The two duration accessors have different meanings:
 
 - `duration_beats(event)` returns the event's own duration;
 - `duration_beats(score)` returns the latest event end,
@@ -77,8 +77,8 @@ saw = oscillator(220, 1; samplerate=48_000, shape=:saw)
 
 Frequency is finite and non-negative, duration is finite and non-negative,
 sample rate is positive, and amplitude and phase must be finite. Phase is used
-by the sine, cosine, and square implementations; the current saw and triangle
-implementations derive their ramps from the unshifted frequency angle.
+by the sine, cosine, and square implementations; saw and triangle derive their
+ramps from the unshifted frequency angle.
 Waveforms are direct mathematical shapes; there is no band-limiting, so
 high-frequency discontinuities can alias.
 
@@ -88,8 +88,8 @@ high-frequency discontinuities can alias.
 texture = noise(0.5; samplerate=48_000, amplitude=0.1)
 ```
 
-It uses Julia's default random source and is therefore not a deterministic
-fixture unless the caller controls the random seed.
+It uses Julia's default random source. Results vary unless the caller controls
+the random seed.
 
 `tone` is the sine-specific convenience wrapper:
 
@@ -163,6 +163,6 @@ clipping or envelope. An empty score renders to zero-frame audio.
 The renderer's `amplitude` must be finite but is not otherwise clamped. A
 negative value is therefore allowed and reverses the generated waveform.
 
-Future synthesis work is tracked in [`../TODOS.md`](../TODOS.md), including
+Planned synthesis work is tracked in [`../TODOS.md`](../TODOS.md), including
 integration of custom instruments/envelopes into score rendering, rests,
 release tails, deterministic voice allocation, and richer polyphonic behavior.

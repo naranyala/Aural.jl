@@ -1,8 +1,8 @@
 # Aural.jl documentation
 
-This directory contains the maintained user and contributor documentation for
-the current `Aural` API. The package is deliberately small, so the guides are
-organized by responsibility instead of by individual source file.
+This directory contains user and contributor documentation for the `Aural` API.
+The guides are organized by responsibility rather than by individual source
+file.
 
 ## Guides
 
@@ -12,7 +12,7 @@ organized by responsibility instead of by individual source file.
 - [`music-and-synthesis.md`](music-and-synthesis.md) — create symbolic notes,
   scores, tones, and rendered audio.
 - [`analysis.md`](analysis.md) — frame audio, compute STFTs and spectrograms,
-  and extract baseline features.
+  and extract MIR features.
 - [`events-and-evaluation.md`](events-and-evaluation.md) — detect onsets and
   evaluate point-event predictions.
 - [`development.md`](development.md) — navigate the repository, run tests, and
@@ -43,11 +43,19 @@ rows and analysis-frame columns.
 | `src/audio.jl` | `AudioBuffer` and sample operations |
 | `src/music.jl` | Pitch, note, tempo, event, and score types |
 | `src/synthesis.jl` | Oscillators, noise, envelopes, and score rendering |
-| `src/io.jl` | WAV adapters |
-| `src/analysis.jl` | Framing, FFTs, spectrograms, and features |
-| `src/events.jl` | Point-event annotations, onset detection, and scoring |
-| `test/runtests.jl` | Package-level API and MIR tests |
+| `src/analysis.jl` | Analysis loader and public include boundary |
+| `src/analysis/` | Framing, result containers, transforms, features, and pitch |
+| `src/events.jl` | Event loader and public include boundary |
+| `src/events/` | Annotations, scoring, onset detection, and tempo estimation |
+| `src/wav_io.jl` | WAV adapters |
+| `test/runtests.jl` | Test runner and suite ordering |
 | `test/regressions.jl` | Boundary and regression tests |
+| `test/edge_cases.jl` | Cross-domain edge-case contracts |
+| `test/events.jl` | Event and tempo behavior |
+| `test/analysis.jl` | Analysis pipeline behavior |
+| `test/audio.jl` | AudioBuffer behavior |
+| `test/music.jl` | Symbolic music behavior |
+| `test/synthesis.jl` | Synthesis and rendering behavior |
 
-The roadmap in [`../TODOS.md`](../TODOS.md) is intentionally separate from the
-reference documentation: it describes future work, not supported behavior.
+The roadmap in [`../TODOS.md`](../TODOS.md) is separate from the reference
+documentation and describes planned work, not supported behavior.

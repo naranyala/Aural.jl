@@ -5,7 +5,7 @@ module Aural
 include("audio.jl")
 include("music.jl")
 include("synthesis.jl")
-include("io.jl")
+include("wav_io.jl")
 include("analysis.jl")
 include("events.jl")
 

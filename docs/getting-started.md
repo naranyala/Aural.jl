@@ -2,9 +2,9 @@
 
 ## Requirements
 
-Aural.jl is a Julia package targeting Julia 1.10 or newer. The repository's
-current verification environment is Julia 1.12.7. Runtime dependencies are
-WAV.jl, FFTW.jl, and DSP.jl; they are declared in `Project.toml`.
+Aural.jl supports Julia 1.10 and later. The repository's verification
+environment uses Julia 1.12.7. Runtime dependencies are WAV.jl, FFTW.jl, and
+DSP.jl; they are declared in `Project.toml`.
 
 From the repository root:
 
@@ -43,7 +43,7 @@ Keep these conventions in mind when moving between APIs:
 The package does not attach physical units to numeric values. The caller is
 responsible for passing values in the units shown above.
 
-## A complete small workflow
+## A complete workflow
 
 The following example creates audio, writes it to WAV, reads it back, computes
 features, and detects point events:
@@ -89,10 +89,10 @@ mutating it mutates the buffer. Use `copy(audio)` or `copy(samples(audio))`
 when isolation is needed. Channel extraction through `channel` returns a copy.
 
 Most transformations return a new `AudioBuffer`. In particular, `gain`,
-`normalize`, `trim`, `mix`, `mono`, `stereo`, and `join_channels` do not promise
-in-place operation.
+`normalize`, `trim`, `mix`, `mono`, `stereo`, and `join_channels` return new
+buffers rather than modifying their inputs.
 
-## Where to go next
+## Further reading
 
 - Read [`audio.md`](audio.md) for sample-level operations and edge cases.
 - Read [`music-and-synthesis.md`](music-and-synthesis.md) for beats and score

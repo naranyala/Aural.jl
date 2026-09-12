@@ -33,8 +33,8 @@ after the end of the original recording.
 `1:window_size`. `frame` also requires the grid's signal length to match the
 audio buffer.
 
-For repeatable pipelines, use `AnalysisConfig` as the single source of
-framing truth:
+For consistent pipelines, use `AnalysisConfig` as the single source of
+framing parameters:
 
 ```julia
 settings = AnalysisConfig(window_size=1024, hop_size=256, nfft=2048,
@@ -49,16 +49,15 @@ the iterator is intended for bounded-memory feature calculations.
 
 ## Analysis contract v1
 
-The current result metadata uses `analysis_version=1`. Frame centers are
+Result metadata uses `analysis_version=1`. Frame centers are
 zero-based sample centers, timestamps are seconds, padded tails are zero-filled,
 and the source audio convention is `channels × frames`. `STFT` and
 `Spectrogram` use `frequency_bins × frames`; scalar tracks use one value per
 frame; matrix features use `features × frames`. `metadata(result)` also
 identifies the exact `AnalysisConfig`, sample rate, selected channel, and source
 layout; `samplerate(result)` is also available for STFT and spectrogram
-results. Existing keyword calls and the legacy six-argument result constructors
-remain accepted; new integrations should prefer the shared config and metadata
-accessors.
+results. Keyword calls and the legacy six-argument result constructors remain
+accepted; callers should prefer the shared config and metadata accessors.
 
 ## STFT and spectrograms
 
@@ -99,7 +98,7 @@ centroid = spectral_centroid(spec)
 flux = spectral_flux(spec)
 ```
 
-The current definitions are:
+Definitions:
 
 - `rms`: unwindowed samples, including zero padding, with the denominator fixed
   at `window_size`;
@@ -118,7 +117,7 @@ flatness, zero-crossing rate, crest factor, DC offset, and amplitude in dB.
 `power_db(spec)` returns a matrix-valued dB feature. dB features use a positive
 reference and floor; silent RMS frames evaluate to `20*log10(floor/reference)`.
 
-`pitch_track` is a monophonic autocorrelation baseline:
+`pitch_track` is a monophonic autocorrelation pitch tracker:
 
 ```julia
 pitch = pitch_track(audio; fmin=60, fmax=1000, confidence_threshold=0.4)
@@ -126,9 +125,9 @@ pitch.values       # 0.0 denotes unvoiced/ambiguous frames
 confidence(pitch)  # one confidence value per frame
 ```
 
-Pitch values are only reported when the normalized autocorrelation reaches the
-configured confidence threshold. This is deterministic and useful for
-prototyping, but it is not a polyphonic or noise-robust pitch tracker.
+Pitch values are reported only when normalized autocorrelation reaches the
+configured confidence threshold. The method does not support polyphonic or
+noise-robust tracking.
 
 ## Chroma
 
@@ -141,7 +140,7 @@ Each positive-frequency FFT bin is assigned to its nearest equal-tempered
 pitch class, its power is accumulated, and each frame is L1-normalized when
 non-silent. The tuning reference must be finite and positive.
 
-This is an FFT-bin baseline: it does not perform harmonic weighting, tuning
+Chroma uses FFT-bin assignment and does not perform harmonic weighting, tuning
 estimation, or chroma whitening.
 
 ## MFCC

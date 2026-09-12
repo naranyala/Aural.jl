@@ -18,7 +18,7 @@ A vector input is interpreted as one channel. A matrix input is already
 expected to be in channels × frames order. At least one channel is required;
 zero-frame audio is valid.
 
-Useful accessors are:
+Accessors include:
 
 - `samples(audio)` — the underlying sample array, without an implicit copy;
 - `samplerate(audio)` — the sample rate;
@@ -91,9 +91,9 @@ The following are rejected with `ArgumentError`:
 - incompatible sample rates or frame counts in `join_channels`;
 - negative or non-finite mix offsets.
 
-There is no implicit clipping. The current package has no hard-clip or
-soft-saturation operation; use a deliberate transform such as `normalize` or
-write your own policy when a bounded signal is required.
+Operations do not clip samples. Aural provides no hard-clip or soft-saturation
+operation; use `normalize` or another explicit policy when a bounded signal is
+required.
 
 ## WAV input and output
 
@@ -106,5 +106,5 @@ loaded64 = read_audio("input.wav"; T=Float64)
 `read_audio` accepts mono and multichannel WAV data and converts it to
 channels × frames. It defaults to `Float32`; `T` controls the in-memory sample
 type. `write_audio` converts samples to `Float32` before passing them to
-WAV.jl. The adapter currently does not promise source bit-depth or metadata
-preservation, and it returns the output path.
+WAV.jl. The adapter does not preserve source bit depth or metadata, and it
+returns the output path.

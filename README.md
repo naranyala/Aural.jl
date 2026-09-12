@@ -1,43 +1,42 @@
 # Aural.jl
 
-Aural.jl is a small, offline-first Julia toolkit for connecting symbolic music,
-audio synthesis, sampled audio, WAV files, and baseline music-information-
-retrieval (MIR) features.
+Aural.jl is an offline Julia package for symbolic music, audio synthesis, WAV
+I/O, and music-information-retrieval (MIR) analysis.
 
-The package is intentionally compact. Its current data flow is:
+The data flow is:
 
 ```text
 symbolic music -> synthesis/rendering -> AudioBuffer -> analysis and WAV I/O
 ```
 
-It does not require an audio device and does not currently provide realtime
-streaming, MIDI, codec support beyond WAV, or machine-learning integrations.
+Aural operates on in-memory audio and does not provide audio-device I/O,
+realtime streaming, MIDI, codecs beyond WAV, or machine-learning integrations.
 
-## What is implemented
+## Features
 
 - `AudioBuffer` stores sampled audio as `channels × frames`.
 - Audio operations include channel conversion, gain, peak normalization,
   trimming, and additive mixing.
-- `Pitch`, `Note`, `Tempo`, `NoteEvent`, and `Score` provide a small symbolic
-  music model.
+- `Pitch`, `Note`, `Tempo`, `NoteEvent`, and `Score` provide a symbolic music
+  model.
 - `oscillator` provides sine, cosine, saw, square, and triangle waveforms;
   `tone` is its sine alias.
 - `noise`, linear/exponential ramps, `ADSR`, `envelope`, `apply_envelope`, and
-  `note` support small offline synthesis experiments.
-- `render` turns a constant-tempo score into audio with its current sine voice.
+  `note` support offline synthesis.
+- `render` turns a constant-tempo score into audio with a sine voice.
 - `read_audio` and `write_audio` adapt WAV files through WAV.jl.
 - `stft` and `spectrogram` provide one-sided FFT analysis.
-- Baseline RMS, spectral centroid, spectral flux, bandwidth, rolloff, flatness,
+- RMS, spectral centroid, spectral flux, bandwidth, rolloff, flatness,
   zero-crossing rate, crest factor, DC offset, dB, chroma, MFCC, and
-  autocorrelation pitch features are available for offline experiments.
+  autocorrelation pitch features are available for offline analysis.
 - `detect_onsets` supports global/local thresholds, latency compensation, and
   optional strengths; `evaluate_events`, `timing_error`, and `tempo_estimate`
-  provide point-event and rhythm baselines.
+  provide point-event evaluation and tempo/beat estimation.
 
-The package is version `0.1.0` and targets Julia `1.10` or newer. The current
+Aural.jl is version `0.1.0` and supports Julia `1.10` and later. The
 development and verification environment uses Julia 1.12.7.
 
-## Installation and first run
+## Installation
 
 Clone the repository, enter its directory, and instantiate the project:
 
@@ -54,7 +53,7 @@ using Aural
 Runtime dependencies are declared in [`Project.toml`](Project.toml): WAV.jl
 for file I/O, FFTW.jl for FFTs, and DSP.jl for the default Hann window.
 
-## Quick start: generate and write audio
+## Generate and write audio
 
 ```julia
 using Aural
@@ -77,7 +76,7 @@ samples(tone440)     # the underlying 1 × 96000 array
 See [`docs/audio.md`](docs/audio.md) for ownership, channel, timing, and
 mixing details.
 
-## Quick start: render a score
+## Render a score
 
 ```julia
 using Aural
@@ -97,7 +96,7 @@ score's constant tempo. Overlapping events are mixed additively, and the output
 ends at the latest event end. See
 [`docs/music-and-synthesis.md`](docs/music-and-synthesis.md).
 
-## Quick start: analyze a recording
+## Analyze audio
 
 ```julia
 using Aural
@@ -122,7 +121,7 @@ preferred. Feature matrices use rows × analysis frames; feature tracks use one
 value per analysis frame. See [`docs/analysis.md`](docs/analysis.md) for frame
 placement, padding, numerical conventions, and feature definitions.
 
-## Quick start: detect and score onsets
+## Detect and evaluate onsets
 
 ```julia
 using Aural
@@ -136,14 +135,13 @@ score = evaluate_events(reference, estimated; tolerance=0.05)
 timing_error(reference, estimated; tolerance=0.05)
 ```
 
-The detector is an offline spectral-flux baseline. It uses frame-center times,
-supports local thresholds and explicit latency compensation, and may miss an
-attack in the first frame. Event matching is inclusive, one-to-one, and
-maximizes the number of matches; it is not a beat-continuity or
-note-transcription metric. See
+The detector uses spectral flux and frame-center timestamps. It supports local
+thresholds and explicit latency compensation, and may miss an attack in the
+first frame. Event matching is inclusive, one-to-one, and maximizes the number
+of matches; it is not a beat-continuity or note-transcription metric. See
 [`docs/events-and-evaluation.md`](docs/events-and-evaluation.md).
 
-## Public API at a glance
+## Public API
 
 ### Audio
 
@@ -193,12 +191,11 @@ All of these names are explicitly exported from [`src/Aural.jl`](src/Aural.jl).
   contribution workflow.
 - [`CHANGELOG.md`](CHANGELOG.md) — released and unreleased public changes.
 
-The forward-looking roadmap is maintained in [`TODOS.md`](TODOS.md). It
-includes interval annotations, richer synthesis, resampling, inverse STFT,
-real-music benchmarks, CI, coverage, and performance work that are not part of
-the current API.
+Planned work is maintained in [`TODOS.md`](TODOS.md). It includes interval
+annotations, richer synthesis, resampling, inverse STFT, real-music benchmarks,
+CI, coverage, and performance work that is not part of the supported API.
 
-For a compact host-style summary workflow, run
+To run the analysis summary example, use
 [`examples/analysis_summary.jl`](examples/analysis_summary.jl) with no argument
 for a generated tone or with a WAV path as its first argument.
 
@@ -211,8 +208,8 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
 The suite covers the audio and music foundations, direct DFT and MFCC
-references, feature edge cases, exhaustive small event-matching cases, and
-external PCM WAV fixtures. It is not a claim of real-recording accuracy or
+references, feature edge cases, exhaustive event-matching cases, and external
+PCM WAV fixtures. It does not measure real-recording accuracy or provide
 complete branch coverage.
 
 If Julia's package usage log is unavailable in a restricted environment, run
@@ -223,17 +220,16 @@ julia --startup-file=no --compiled-modules=existing --project=. -e \
   'using Aural; include("test/runtests.jl")'
 ```
 
-## Current limitations
+## Limitations
 
 - Audio is offline and in-memory; there is no device or realtime layer.
 - WAV reading defaults to `Float32`; writing converts samples to `Float32`.
 - Source bit-depth and metadata are not preserved by the WAV adapter.
-- `render` currently uses a sine voice; the richer oscillator and envelope
-  helpers are available for explicit offline composition but are not yet wired
-  into score rendering.
+- `render` uses a sine voice; the oscillator and envelope helpers are available
+  for explicit composition but are not wired into score rendering.
 - `spectrogram` stores squared FFT magnitudes, not calibrated PSD estimates.
-- Chroma and MFCC are deliberately simple baselines with documented fixed
-  conventions, not drop-in parity with every external MIR implementation.
+- Chroma and MFCC use documented fixed conventions and are not drop-in
+  replacements for every external MIR implementation.
 - Onset detection uses point-event F1 and has no streaming state, sub-frame
   backtracking, beat-continuity scoring, or dataset evaluation.
 

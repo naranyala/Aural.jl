@@ -4,15 +4,46 @@
 
 ```text
 Project.toml       package metadata and compatibility bounds
-src/               Aural implementation
+src/               Aural implementation and responsibility-based submodules
 test/              package and regression tests
 docs/              maintained Markdown documentation
 README.md          project landing page
 TODOS.md           roadmap and explicitly unimplemented work
 ```
 
-The source is intentionally flat. `src/Aural.jl` defines the module, includes
-the implementation files, and owns the explicit public export list.
+`src/Aural.jl` defines the module, includes the top-level implementation
+boundaries, and owns the explicit public export list. The analysis and event
+areas are split into responsibility-based subdirectories; their loader files
+preserve a stable package entry point.
+
+The source layout is:
+
+```text
+src/
+├── Aural.jl                  module definition and exports
+├── audio.jl                  AudioBuffer and sample operations
+├── music.jl                  symbolic music model
+├── synthesis.jl              oscillators, envelopes, and rendering
+├── wav_io.jl                 WAV file adapters
+├── analysis.jl               analysis loader
+├── analysis/                 framing, results, transforms, features, pitch
+├── events.jl                 event-analysis loader
+└── events/                   annotations, scoring, onsets, tempo
+```
+
+The test suite follows the same domain split:
+
+```text
+test/
+├── runtests.jl               suite runner
+├── regressions.jl            cross-cutting regression tests
+├── edge_cases.jl             cross-domain edge-case contracts
+├── events.jl                 event and tempo tests
+├── analysis.jl               analysis pipeline tests
+├── audio.jl                  AudioBuffer tests
+├── music.jl                  symbolic music tests
+└── synthesis.jl              synthesis and rendering tests
+```
 
 ## Running tests
 
@@ -22,20 +53,20 @@ The normal command is:
 julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-The compact analysis smoke workflow can be run with:
+The analysis example can be run with:
 
 ```sh
 julia --project=. examples/analysis_summary.jl [path/to/audio.wav]
 ```
 
-For a simple allocation/elapsed-time baseline on longer inputs:
+For an allocation and elapsed-time measurement on longer inputs:
 
 ```sh
 julia --project=. benchmark/analysis.jl 10
 ```
 
-These scripts intentionally use only the package's exported API, making them
-useful as host-integration and performance sanity checks.
+Both scripts use the package's exported API and serve as integration and
+performance checks.
 
 The test suite includes:
 
@@ -45,7 +76,7 @@ The test suite includes:
 - symbolic timing and overlapping synthesis;
 - independent direct-DFT checks for odd and even FFT sizes;
 - hand-calculated centroid, flux, chroma, and MFCC references;
-- exhaustive small event-matching cases;
+- exhaustive event-matching cases;
 - WAV fixtures written directly through WAV.jl.
 
 In restricted environments where Julia cannot write its package usage log, run
@@ -80,13 +111,13 @@ were implemented.
 
 ## Design constraints
 
-The current package favors:
+The package follows these principles:
 
 - deterministic, offline operations;
 - explicit units and array layouts;
 - symbolic music independent from sampled audio;
 - pure transformations where practical;
-- small adapters around external packages;
+- thin adapters around external packages;
 - explicit clipping, normalization, resampling, and lossy-conversion policy.
 
 Real-time guarantees, device handling, broad codec support, and ML integrations
